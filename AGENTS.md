@@ -371,6 +371,10 @@ Silgi (ERASER) modunda aktifken `OverlayPanel.drawEraserBox()` metodu, çizim uc
 
 Her karede ekranın alt kısmına aktif mod (`Mode: PEN`) ve kısayol ipuçları (`C: new color | Q: quit`) yazdırılmaktadır.
 
+### **J. S Tuşu ile Ekran Görüntüsü Kaydetme**
+
+`Main.java` içinde `VK_S` tuşuna basıldığında `saveScreenshot(frame)` metodu çağrılır. Mevcut kare (çizimler ve overlay dahil) `outputs/screenshot_YYYYMMDD_HHmmss.png` formatında proje kök dizinindeki `outputs/` klasörüne kaydedilir. Klasör yoksa otomatik oluşturulur. Kayıt işlemi `opencv_imgcodecs.imwrite()` ile gerçekleştirilir. Ekranın alt kısmındaki ipucu metnine `S: save` kısayolu da eklenmiştir.
+
 ### **I. Maven Shade Plugin (Fat JAR)**
 
 `pom.xml` içinde `maven-shade-plugin` tanımlıdır. `mvn clean package` komutu tüm bağımlılıkları içeren tek bir çalıştırılabilir JAR (`magic-painter-1.0.0.jar`) üretir. Geliştirme sırasında `mvn compile exec:java` kullanılabilir.
