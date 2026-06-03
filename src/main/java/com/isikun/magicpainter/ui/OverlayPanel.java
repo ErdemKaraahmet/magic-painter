@@ -17,7 +17,8 @@ import org.bytedeco.opencv.opencv_core.Size;
  */
 public class OverlayPanel {
 
-    private static final int REQUIRED_FRAMES = 60; // ~2 seconds at 30 FPS
+    private static final int REQUIRED_FRAMES = 30; // ~1 second at 30 FPS
+    private static final int MAX_MISSED_FRAMES = 5; // allow 5 frames of jitter
 
     /** One virtual button: a region, a label, and an action to run on dwell. */
     private static final class Button {
@@ -25,6 +26,7 @@ public class OverlayPanel {
         final Rect rect;
         final Runnable action;
         int hoverFrames = 0;
+        int missedFrames = 0;
 
         Button(String label, Rect rect, Runnable action) {
             this.label = label;
@@ -60,7 +62,7 @@ public class OverlayPanel {
                         brush::clear)
         };
 
-        int roiSize = Math.max(40, frameHeight / 8);
+        int roiSize = Math.max(30, frameHeight / 12);
         this.calibrationRoi = new Rect(
                 frameWidth / 2 - roiSize / 2,
                 frameHeight / 2 - roiSize / 2,
@@ -88,7 +90,7 @@ public class OverlayPanel {
      * Updates hover state for the current tip and draws all UI elements. Pass a
      * null tip when no object is detected.
      */
-    public void update(Point tip, Mat frame, boolean colorLocked) {
+    public void update(Point tip, Mat frame, boolean colorLocked, Scalar currentObjColor) {
         if (!colorLocked) {
             drawCalibrationPrompt(frame);
             return;
@@ -98,58 +100,117 @@ public class OverlayPanel {
             boolean hovered = tip != null && isInside(tip, b.rect);
             if (hovered) {
                 b.hoverFrames++;
+                b.missedFrames = 0;
                 if (b.hoverFrames >= REQUIRED_FRAMES) {
                     b.action.run();
                     b.hoverFrames = 0;
                 }
+            } else if (b.hoverFrames > 0) {
+                // Grace period: allow small interruptions without resetting.
+                b.missedFrames++;
+                if (b.missedFrames > MAX_MISSED_FRAMES) {
+                    b.hoverFrames = 0;
+                    b.missedFrames = 0;
+                }
             } else {
                 b.hoverFrames = 0;
+                b.missedFrames = 0;
             }
-            drawButton(frame, b);
+            drawButton(frame, b, currentObjColor);
         }
         drawStatus(frame);
     }
 
-    private void drawButton(Mat frame, Button b) {
+    private void drawButton(Mat frame, Button b, Scalar objColor) {
         boolean active = brush.getMode().name().equals(b.label);
+        double ratio = (double) b.hoverFrames / REQUIRED_FRAMES;
 
-        // Active mode -> green outline; everything else -> red outline.
-        Scalar border = active ? new Scalar(0, 255, 0, 0) : new Scalar(0, 0, 255, 0);
-        opencv_imgproc.rectangle(frame, b.rect, border, 2, opencv_imgproc.LINE_8, 0);
+        // 1. Draw the filled background from left to right
+        if (active) {
+            // Fully filled for active button
+            opencv_imgproc.rectangle(frame, b.rect, objColor, -1, opencv_imgproc.LINE_8, 0);
+        } else if (b.hoverFrames > 0) {
+            // Progress fill from left to right
+            int progressWidth = (int) (b.rect.width() * ratio);
+            Rect fillRect = new Rect(b.rect.x(), b.rect.y(), progressWidth, b.rect.height());
+            opencv_imgproc.rectangle(frame, fillRect, objColor, -1, opencv_imgproc.LINE_8, 0);
+            fillRect.close();
+        }
 
-        Scalar textColor = new Scalar(255, 255, 255, 0);
+        // 2. Draw the static black border
+        Scalar borderColor = new Scalar(0, 0, 0, 0);
+        opencv_imgproc.rectangle(frame, b.rect, borderColor, 2, opencv_imgproc.LINE_8, 0);
+
+        // 3. Draw the text with HSV complement if the background is significantly filled
+        Scalar textColor;
+        if (active || ratio > 0.5) {
+            textColor = getHsvComplement(objColor);
+        } else {
+            textColor = new Scalar(0, 0, 0, 0); // Black text initially
+        }
+
         Point textOrg = new Point(b.rect.x() + 8, b.rect.y() + b.rect.height() / 2 + 5);
         opencv_imgproc.putText(frame, b.label, textOrg,
                 opencv_imgproc.FONT_HERSHEY_SIMPLEX, 0.5, textColor, 1,
                 opencv_imgproc.LINE_AA, false);
 
-        // Circular loading arc that fills while hovering.
-        if (b.hoverFrames > 0) {
-            double ratio = (double) b.hoverFrames / REQUIRED_FRAMES;
-            int angle = (int) (ratio * 360);
-            Point center = new Point(b.rect.x() + b.rect.width() / 2,
-                    b.rect.y() + b.rect.height() / 2);
-            Size axes = new Size(b.rect.width() / 2 + 8, b.rect.height() / 2 + 8);
-            Scalar arcColor = new Scalar(0, 255, 0, 0);
-            opencv_imgproc.ellipse(frame, center, axes, 0, 0, angle, arcColor, 3,
-                    opencv_imgproc.LINE_AA, 0);
-            center.close();
-            axes.close();
-            arcColor.close();
-        }
-
-        border.close();
+        borderColor.close();
         textColor.close();
         textOrg.close();
+        // DO NOT close objColor here; it's owned by ColorTracker.
+    }
+
+    /**
+     * Calculates the complementary color by shifting Hue by 180 degrees in HSV space.
+     * Also adjusts Value for guaranteed contrast against the original color.
+     */
+    private Scalar getHsvComplement(Scalar bgr) {
+        // Create a 1x1 Mat to perform the conversion
+        Mat bgrMat = new Mat(1, 1, org.bytedeco.opencv.global.opencv_core.CV_8UC3, bgr);
+        Mat hsvMat = new Mat();
+        opencv_imgproc.cvtColor(bgrMat, hsvMat, opencv_imgproc.COLOR_BGR2HSV);
+
+        // Access HSV values. H in OpenCV is 0-179.
+        byte[] hsvData = new byte[3];
+        hsvMat.data().get(hsvData);
+        int h = hsvData[0] & 0xFF;
+        int s = hsvData[1] & 0xFF;
+        int v = hsvData[2] & 0xFF;
+
+        // Shift Hue by 180 degrees (90 units in OpenCV)
+        h = (h + 90) % 180;
+        
+        // Boost/Invert Value for contrast: if dark, make text bright; if bright, make text dark.
+        v = (v > 128) ? 40 : 255;
+        // Keep Saturation high for the complementary effect to be visible
+        s = Math.max(s, 150);
+
+        hsvData[0] = (byte) h;
+        hsvData[1] = (byte) s;
+        hsvData[2] = (byte) v;
+        hsvMat.data().put(hsvData);
+
+        Mat resBgrMat = new Mat();
+        opencv_imgproc.cvtColor(hsvMat, resBgrMat, opencv_imgproc.COLOR_HSV2BGR);
+
+        byte[] resBgrData = new byte[3];
+        resBgrMat.data().get(resBgrData);
+        Scalar result = new Scalar(resBgrData[0] & 0xFF, resBgrData[1] & 0xFF, resBgrData[2] & 0xFF, 0);
+
+        bgrMat.release();
+        hsvMat.release();
+        resBgrMat.release();
+
+        return result;
     }
 
     private void drawCalibrationPrompt(Mat frame) {
-        Scalar boxColor = new Scalar(0, 255, 255, 0);
+        Scalar boxColor = new Scalar(0, 0, 0, 0); // Black calibration box
         opencv_imgproc.rectangle(frame, calibrationRoi, boxColor, 2,
                 opencv_imgproc.LINE_8, 0);
 
-        Point textOrg = new Point(calibrationRoi.x() - 10, calibrationRoi.y() - 15);
-        opencv_imgproc.putText(frame, "Hold object here and press SPACE", textOrg,
+        Point textOrg = new Point(calibrationRoi.x() - 100, calibrationRoi.y() - 15);
+        opencv_imgproc.putText(frame, "Hold object in box and press SPACE", textOrg,
                 opencv_imgproc.FONT_HERSHEY_SIMPLEX, 0.5, boxColor, 1,
                 opencv_imgproc.LINE_AA, false);
 
@@ -158,13 +219,13 @@ public class OverlayPanel {
     }
 
     private void drawStatus(Mat frame) {
-        Scalar color = new Scalar(255, 255, 0, 0);
+        Scalar color = new Scalar(0, 0, 0, 0); // Black status text
         Point org = new Point(20, frame.rows() - 45);
-        opencv_imgproc.putText(frame, "Mode: " + brush.getMode(), org,
-                opencv_imgproc.FONT_HERSHEY_SIMPLEX, 0.6, color, 2,
+        opencv_imgproc.putText(frame, "Mode: " + brush.getMode() + " (Hover buttons to select)", org,
+                opencv_imgproc.FONT_HERSHEY_SIMPLEX, 0.5, color, 1,
                 opencv_imgproc.LINE_AA, false);
 
-        Scalar hintColor = new Scalar(255, 255, 255, 0);
+        Scalar hintColor = new Scalar(0, 0, 0, 0); // Black hints
         Point hintOrg = new Point(20, frame.rows() - 20);
         opencv_imgproc.putText(frame, "C: new color   Q: quit", hintOrg,
                 opencv_imgproc.FONT_HERSHEY_SIMPLEX, 0.5, hintColor, 1,
@@ -174,6 +235,20 @@ public class OverlayPanel {
         color.close();
         hintOrg.close();
         hintColor.close();
+    }
+
+    /** Draws a visual box around the eraser tip to show the area of effect. */
+    public void drawEraserBox(Mat frame, Point tip) {
+        if (tip == null || brush.getMode() != BrushManager.Mode.ERASER) {
+            return;
+        }
+        int radius = 50; // Matches ERASER_RADIUS in BrushManager
+        Rect eraserRect = new Rect(tip.x() - radius, tip.y() - radius, radius * 2, radius * 2);
+        Scalar color = new Scalar(255, 255, 255, 0); // White box
+        opencv_imgproc.rectangle(frame, eraserRect, color, 1, opencv_imgproc.LINE_AA, 0);
+        
+        eraserRect.close();
+        color.close();
     }
 
     private boolean isInside(Point p, Rect r) {

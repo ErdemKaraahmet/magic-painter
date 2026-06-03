@@ -43,6 +43,10 @@ public class Main {
         CanvasFrame canvas = new CanvasFrame("Magic Air Painter");
         canvas.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
 
+        CanvasFrame maskCanvas = new CanvasFrame("Pen Detection Mask");
+        maskCanvas.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+        maskCanvas.setLocation(canvas.getX() + canvas.getWidth(), canvas.getY());
+
         AtomicBoolean calibrateRequested = new AtomicBoolean(false);
         AtomicBoolean recalibrateRequested = new AtomicBoolean(false);
         AtomicBoolean quitRequested = new AtomicBoolean(false);
@@ -68,6 +72,7 @@ public class Main {
             int width = camera.getFrameWidth();
             int height = camera.getFrameHeight();
             canvas.setCanvasSize(width, height);
+            maskCanvas.setCanvasSize(width, height);
 
             OverlayPanel overlay = new OverlayPanel(width, height, brush);
 
@@ -89,7 +94,7 @@ public class Main {
                     }
                     // Keep the existing drawing visible while choosing a new colour.
                     brush.drawOnFrame(frame);
-                    overlay.update(null, frame, false);
+                    overlay.update(null, frame, false, tracker.getDrawingColorBGR());
                 } else {
                     Mat mask = tracker.buildCleanMask(hsv);
                     Point tip = tracker.findTip(mask);
@@ -103,7 +108,10 @@ public class Main {
                     }
 
                     brush.drawOnFrame(frame);
-                    overlay.update(tip, frame, true);
+                    overlay.update(tip, frame, true, tracker.getDrawingColorBGR());
+                    overlay.drawEraserBox(frame, tip);
+
+                    maskCanvas.showImage(displayConverter.convert(mask));
 
                     if (tip != null) {
                         tip.close();
@@ -123,6 +131,7 @@ public class Main {
         } finally {
             camera.close();
             canvas.dispose();
+            maskCanvas.dispose();
         }
     }
 }

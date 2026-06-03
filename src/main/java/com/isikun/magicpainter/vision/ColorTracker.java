@@ -36,13 +36,19 @@ public class ColorTracker {
     private static final double S_TOL = 40;
     private static final double V_TOL = 40;
 
+    /** Smoothing factor for the drawing tip coordinates (0.0 to 1.0). Lower is smoother. */
+    private static final double SMOOTHING_FACTOR = 0.3;
+
     private Scalar lowerBound;
     private Scalar upperBound;
 
     /** Average BGR colour of the calibrated object; used as the drawing colour. */
-    private Scalar drawingColorBGR = new Scalar(0, 255, 0, 0);
+    private Scalar drawingColorBGR = new Scalar(0, 0, 0, 0);
 
     private boolean colorLocked = false;
+
+    private double smoothedX = -1;
+    private double smoothedY = -1;
 
     /** Converts a BGR frame into a new HSV Mat. The caller must release it. */
     public Mat toHsv(Mat bgrFrame) {
@@ -90,15 +96,14 @@ public class ColorTracker {
     public Mat buildCleanMask(Mat hsvFrame) {
         Mat mask = new Mat();
 
-        // inRange accepts scalar bounds wrapped as Mat objects in JavaCV.
+        // Color Masking
         Mat lower = new Mat(lowerBound);
         Mat upper = new Mat(upperBound);
         opencv_core.inRange(hsvFrame, lower, upper, mask);
         lower.release();
         upper.release();
 
-        // Opening = Erosion followed by Dilation. Erosion deletes small noise
-        // specks; Dilation restores the real object to roughly its original size.
+        // Morphological Cleaning
         Mat kernel = opencv_imgproc.getStructuringElement(
                 opencv_imgproc.MORPH_RECT,
                 new Size(MORPH_KERNEL_SIZE, MORPH_KERNEL_SIZE));
@@ -110,9 +115,8 @@ public class ColorTracker {
 
     /**
      * Finds the largest contour in the mask and returns its centroid as a Point,
-     * or null when no contour is big enough (object hidden / pen lifted).
-     *
-     * The returned Point is owned by the caller and must be closed after use.
+     * or null when no contour is big enough. Applies Exponential Moving Average (EMA)
+     * for smoothing.
      */
     public Point findTip(Mat mask) {
         Point tip = null;
@@ -135,10 +139,23 @@ public class ColorTracker {
                 Moments mu = opencv_imgproc.moments(largest);
                 double m00 = mu.m00();
                 if (m00 != 0) {
-                    int cx = (int) (mu.m10() / m00);
-                    int cy = (int) (mu.m01() / m00);
-                    tip = new Point(cx, cy);
+                    int rawX = (int) (mu.m10() / m00);
+                    int rawY = (int) (mu.m01() / m00);
+
+                    // Apply Exponential Moving Average (EMA) for smoothing
+                    if (smoothedX < 0) {
+                        smoothedX = rawX;
+                        smoothedY = rawY;
+                    } else {
+                        smoothedX = (rawX * SMOOTHING_FACTOR) + (smoothedX * (1.0 - SMOOTHING_FACTOR));
+                        smoothedY = (rawY * SMOOTHING_FACTOR) + (smoothedY * (1.0 - SMOOTHING_FACTOR));
+                    }
+                    tip = new Point((int) smoothedX, (int) smoothedY);
                 }
+            } else {
+                // Reset smoothing when object is lost
+                smoothedX = -1;
+                smoothedY = -1;
             }
         }
         return tip;
@@ -153,10 +170,11 @@ public class ColorTracker {
     }
 
     /**
-     * Unlocks the colour so the app returns to calibration mode and the user can
-     * sample a new object colour with SPACE. The drawing history is untouched.
+     * Unlocks the colour so the app returns to calibration mode.
      */
     public void resetCalibration() {
         this.colorLocked = false;
+        this.smoothedX = -1;
+        this.smoothedY = -1;
     }
 }

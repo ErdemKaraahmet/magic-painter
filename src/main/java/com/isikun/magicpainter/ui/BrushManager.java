@@ -25,6 +25,9 @@ public class BrushManager {
 
     /** Phase 1 drawing modes. */
     public enum Mode { PEN, BRUSH, ERASER }
+    
+    /** Application modes: Free Sketching or Coloring Book. */
+    public enum AppMode { FREE, COLORING_BOOK }
 
     /** A single recorded sample. Intentionally plain data, not an OpenCV Point. */
     private static final class StrokePoint {
@@ -45,7 +48,7 @@ public class BrushManager {
 
     private static final int PEN_THICKNESS = 3;
     private static final int BRUSH_THICKNESS = 14;
-    private static final int ERASER_RADIUS = 30;
+    private static final int ERASER_RADIUS = 50;
 
     private final List<StrokePoint> history = new ArrayList<>();
     private Mode mode = Mode.PEN;
