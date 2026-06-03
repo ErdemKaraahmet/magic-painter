@@ -49,6 +49,7 @@ public class ColorTracker {
 
     private double smoothedX = -1;
     private double smoothedY = -1;
+    private double lastMaxArea = 0;
 
     /** Converts a BGR frame into a new HSV Mat. The caller must release it. */
     public Mat toHsv(Mat bgrFrame) {
@@ -136,6 +137,7 @@ public class ColorTracker {
             }
 
             if (largest != null && maxArea > MIN_VALID_AREA) {
+                this.lastMaxArea = maxArea;
                 Moments mu = opencv_imgproc.moments(largest);
                 double m00 = mu.m00();
                 if (m00 != 0) {
@@ -153,12 +155,17 @@ public class ColorTracker {
                     tip = new Point((int) smoothedX, (int) smoothedY);
                 }
             } else {
+                this.lastMaxArea = 0;
                 // Reset smoothing when object is lost
                 smoothedX = -1;
                 smoothedY = -1;
             }
         }
         return tip;
+    }
+
+    public double getLastMaxArea() {
+        return lastMaxArea;
     }
 
     public boolean isColorLocked() {

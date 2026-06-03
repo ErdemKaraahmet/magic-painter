@@ -33,13 +33,15 @@ public class BrushManager {
         final boolean isBreak;
         final double[] colorBgr; // null on break / eraser markers
         final int thickness;
+        final boolean isGlow;
 
-        StrokePoint(int x, int y, boolean isBreak, double[] colorBgr, int thickness) {
+        StrokePoint(int x, int y, boolean isBreak, double[] colorBgr, int thickness, boolean isGlow) {
             this.x = x;
             this.y = y;
             this.isBreak = isBreak;
             this.colorBgr = colorBgr;
             this.thickness = thickness;
+            this.isGlow = isGlow;
         }
     }
 
@@ -49,6 +51,7 @@ public class BrushManager {
 
     private final List<StrokePoint> history = new ArrayList<>();
     private Mode mode = Mode.PEN;
+    private boolean glowEnabled = false;
 
     public void setMode(Mode newMode) {
         this.mode = newMode;
@@ -60,10 +63,20 @@ public class BrushManager {
         return mode;
     }
 
+    public void setGlowEnabled(boolean enabled) {
+        this.glowEnabled = enabled;
+        // Toggling glow should also start a new segment
+        insertBreak();
+    }
+
+    public boolean isGlowEnabled() {
+        return glowEnabled;
+    }
+
     /** Records a break marker (pen lifted, object hidden, or mode changed). */
     public void insertBreak() {
         if (history.isEmpty() || !history.get(history.size() - 1).isBreak) {
-            history.add(new StrokePoint(-1, -1, true, null, 0));
+            history.add(new StrokePoint(-1, -1, true, null, 0, false));
         }
     }
 
@@ -72,7 +85,7 @@ public class BrushManager {
      * is interpreted as the pen being lifted and inserts a break. In ERASER mode
      * the nearby history is removed instead of adding ink.
      */
-    public void addPoint(Point tip, Scalar drawingColorBgr) {
+    public void addPoint(Point tip, Scalar drawingColorBgr, int customThickness) {
         if (tip == null) {
             insertBreak();
             return;
@@ -90,8 +103,11 @@ public class BrushManager {
                 drawingColorBgr.get(1),
                 drawingColorBgr.get(2)
         };
-        int thickness = (mode == Mode.BRUSH) ? BRUSH_THICKNESS : PEN_THICKNESS;
-        history.add(new StrokePoint(x, y, false, color, thickness));
+        
+        int thickness = customThickness > 0 ? customThickness : 
+                       (mode == Mode.BRUSH ? BRUSH_THICKNESS : PEN_THICKNESS);
+        
+        history.add(new StrokePoint(x, y, false, color, thickness, glowEnabled));
     }
 
     /** Removes drawn points within the eraser radius and splits the stroke there. */
@@ -107,7 +123,7 @@ public class BrushManager {
             if (dx * dx + dy * dy > ERASER_RADIUS * ERASER_RADIUS) {
                 kept.add(p);
             } else {
-                kept.add(new StrokePoint(-1, -1, true, null, 0));
+                kept.add(new StrokePoint(-1, -1, true, null, 0, false));
             }
         }
         history.clear();
@@ -124,6 +140,14 @@ public class BrushManager {
      * joined; a break on either endpoint skips that segment (the gap check).
      */
     public void drawOnFrame(Mat frame) {
+        drawOnFrame(frame, null);
+    }
+
+    /**
+     * Replays the history onto the frame, optionally filtering by glow state.
+     * If glowFilter is null, draws everything.
+     */
+    public void drawOnFrame(Mat frame, Boolean glowFilter) {
         Point p1 = new Point();
         Point p2 = new Point();
         try {
@@ -133,6 +157,12 @@ public class BrushManager {
                 if (a.isBreak || b.isBreak) {
                     continue; // never connect across a break
                 }
+                
+                // Filter by glow state if requested
+                if (glowFilter != null && b.isGlow != glowFilter) {
+                    continue;
+                }
+
                 p1.x(a.x).y(a.y);
                 p2.x(b.x).y(b.y);
                 Scalar color = new Scalar(b.colorBgr[0], b.colorBgr[1], b.colorBgr[2], 0);

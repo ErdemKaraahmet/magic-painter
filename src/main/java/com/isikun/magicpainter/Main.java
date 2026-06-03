@@ -4,12 +4,14 @@ import com.isikun.magicpainter.camera.CameraManager;
 import com.isikun.magicpainter.ui.BrushManager;
 import com.isikun.magicpainter.ui.OverlayPanel;
 import com.isikun.magicpainter.vision.ColorTracker;
+import com.isikun.magicpainter.vision.ShapeAnalyzer;
 
 import org.bytedeco.javacv.CanvasFrame;
 import org.bytedeco.javacv.OpenCVFrameConverter;
 import org.bytedeco.opencv.global.opencv_imgcodecs;
 import org.bytedeco.opencv.opencv_core.Mat;
 import org.bytedeco.opencv.opencv_core.Point;
+import org.bytedeco.opencv.opencv_core.Scalar;
 
 import javax.swing.WindowConstants;
 import java.awt.event.KeyAdapter;
@@ -73,6 +75,7 @@ public class Main {
 
         ColorTracker tracker = new ColorTracker();
         BrushManager brush = new BrushManager();
+        ShapeAnalyzer analyzer = new ShapeAnalyzer();
 
         try {
             camera.open();
@@ -100,7 +103,18 @@ public class Main {
                         tracker.calibrate(hsv, frame, overlay.getCalibrationRoi());
                     }
                     // Keep the existing drawing visible while choosing a new colour.
-                    brush.drawOnFrame(frame);
+                    // 1. Draw non-glowing lines directly on the frame
+                    brush.drawOnFrame(frame, false);
+
+                    // 2. Draw glowing lines on a separate layer, blur it, and add it
+                    Mat glowLayer = new Mat(frame.size(), frame.type(), new Scalar(0, 0, 0, 0));
+                    brush.drawOnFrame(glowLayer, true);
+                    if (org.bytedeco.opencv.global.opencv_core.countNonZero(glowLayer.reshape(1)) > 0) {
+                        analyzer.applyGlow(glowLayer, 15);
+                        org.bytedeco.opencv.global.opencv_core.addWeighted(frame, 1.0, glowLayer, 1.5, 0, frame);
+                    }
+                    glowLayer.release();
+
                     overlay.update(null, frame, false, tracker.getDrawingColorBGR());
                 } else {
                     Mat mask = tracker.buildCleanMask(hsv);
@@ -110,11 +124,29 @@ public class Main {
                         // Hovering the UI: count the dwell, do not draw.
                         brush.insertBreak();
                     } else {
+                        int thickness = 0; // Use default for the mode
+                        if (brush.getMode() == BrushManager.Mode.BRUSH) {
+                            // Phase 2: Dynamic thickness based on contour area for BRUSH only.
+                            thickness = analyzer.dynamicThickness(tracker.getLastMaxArea());
+                        }
                         // null tip means the object is hidden -> inserts a break.
-                        brush.addPoint(tip, tracker.getDrawingColorBGR());
+                        brush.addPoint(tip, tracker.getDrawingColorBGR(), thickness);
                     }
 
-                    brush.drawOnFrame(frame);
+                    // 1. Draw non-glowing lines directly on the frame
+                    brush.drawOnFrame(frame, false);
+
+                    // 2. Draw glowing lines on a separate layer, blur it, and add it
+                    Mat glowLayer = new Mat(frame.size(), frame.type(), new Scalar(0, 0, 0, 0));
+                    brush.drawOnFrame(glowLayer, true);
+                    
+                    // Check if anything was actually drawn on the glow layer
+                    if (org.bytedeco.opencv.global.opencv_core.countNonZero(glowLayer.reshape(1)) > 0) {
+                        analyzer.applyGlow(glowLayer, 15);
+                        org.bytedeco.opencv.global.opencv_core.addWeighted(frame, 1.0, glowLayer, 1.5, 0, frame);
+                    }
+                    glowLayer.release();
+                    
                     overlay.update(tip, frame, true, tracker.getDrawingColorBGR());
                     overlay.drawEraserBox(frame, tip);
 

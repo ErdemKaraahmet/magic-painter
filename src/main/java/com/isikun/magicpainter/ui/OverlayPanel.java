@@ -59,7 +59,10 @@ public class OverlayPanel {
                         () -> brush.setMode(BrushManager.Mode.ERASER)),
                 new Button("CLEAR",
                         new Rect(x, margin * 4 + buttonHeight * 3, buttonWidth, buttonHeight),
-                        brush::clear)
+                        brush::clear),
+                new Button("GLOW",
+                        new Rect(x, margin * 5 + buttonHeight * 4, buttonWidth, buttonHeight),
+                        () -> brush.setGlowEnabled(!brush.isGlowEnabled()))
         };
 
         int roiSize = Math.max(30, frameHeight / 12);
@@ -123,9 +126,12 @@ public class OverlayPanel {
 
     private void drawButton(Mat frame, Button b, Scalar objColor) {
         boolean active = brush.getMode().name().equals(b.label);
+        if (b.label.equals("GLOW")) {
+            active = brush.isGlowEnabled();
+        }
         double ratio = (double) b.hoverFrames / REQUIRED_FRAMES;
 
-        // 1. Draw the filled background from left to right
+        // 1. Draw the filled background
         if (active) {
             // Fully filled for active button
             opencv_imgproc.rectangle(frame, b.rect, objColor, -1, opencv_imgproc.LINE_8, 0);
