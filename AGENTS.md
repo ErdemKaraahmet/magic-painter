@@ -4,6 +4,17 @@ Bu doküman, **Işık Üniversitesi COMP 4687 \- Introduction to Computer Vision
 
 Bu dosya, hem geliştirici ekibin ortak dili konuşmasını sağlamak hem de yazılım üreten yapay zeka ajanlarının (coding agents) projeyi sıfır hata ile ayağa kaldırabilmesi için bir **ana kılavuz (specification sheet)** olarak tasarlanmıştır.
 
+## **0\. Proje Ekibi**
+
+| İsim | Soyisim |
+| :---- | :---- |
+| Fatih | Altınışık |
+| Mehmet Eren | Bombacı |
+| Kaan Emre | Evci |
+| Erdem | Karaahmet |
+| Oğuzhan | Önder |
+| Elif | Zeybekoğlu |
+
 ## **1\. Proje Genel Tanımı (Context)**
 
 "Magic Air Painter", kullanıcının bilgisayara, klavyeye veya fareye dokunmadan, sadece kameraya gösterdiği herhangi bir renkli nesneyi (kalem kapağı, renkli karton, pinpon topu vb.) havada hareket ettirerek doğrudan canlı webcam görüntüsü üzerine pürüzsüz çizimler yapmasını sağlayan bir bilgisayarlı görü (computer vision) uygulamasıdır.
@@ -324,7 +335,49 @@ public class UIHoverController {
     }  
 }
 
-## **8\. Geliştirici Ajanlar (Coding Agents) İçin Önemli Notlar**
+## **8\. Gerçek Uygulama Notları (Codebase ile Spec Farkları)**
+
+Aşağıdaki özellikler kodda mevcut olup yukarıdaki spesifikasyona henüz yansıtılmamıştır. Geliştirici ajanlar bu bölümü **gerçeğin kaynağı (source of truth)** olarak kabul etmelidir.
+
+### **A. Hover Süresi: 30 Kare (~1 Saniye)**
+
+`OverlayPanel.java` içindeki `REQUIRED_FRAMES = 30` olarak tanımlanmıştır. Spec'te belirtilen 60 kare (2 saniye) değeri **uygulanmamıştır**; gerçek eşik 1 saniyedir.
+
+### **B. Hover Geri Bildirimi: Soldan Sağa Doluş (Fill) Animasyonu**
+
+Spec'te dairesel yükleme yayı (arc) önerilmişti; gerçek uygulamada buton arka planı **soldan sağa ilerleyen** bir renk doluşuyla dolmaktadır. Buton metninin rengi, nesne rengiyle kontrast sağlamak için **HSV tamamlayıcı renk (complement)** algoritmasıyla hesaplanmaktadır (`OverlayPanel.getHsvComplement()`).
+
+### **C. Grace Period (Jitter Toleransı)**
+
+`OverlayPanel` içinde `MAX_MISSED_FRAMES = 5` parametresiyle küçük algılama kesintileri (jitter) tolere edilmektedir. Çizim ucu butona üzerine geldiğinde, 5 karelık bir kesinti hover sayacını sıfırlamamaktadır.
+
+### **D. EMA (Exponential Moving Average) Pürüzsüzleştirme**
+
+`ColorTracker.java` içinde `SMOOTHING_FACTOR = 0.3` ile çizim ucu koordinatlarına **Üstel Hareketli Ortalama** uygulanmaktadır. Bu, kamera gürültüsünden kaynaklanan titremeleri azaltır ve daha akıcı çizgi üretir.
+
+### **E. C Tuşu ile Yeniden Kalibrasyon**
+
+`Main.java` içinde `VK_C` tuşuna basıldığında `tracker.resetCalibration()` çağrılır ve uygulama kalibrasyon moduna geri döner. Mevcut çizim silinmez; yalnızca renk kilidi açılır.
+
+### **F. Canlı Maske Önizleme Penceresi**
+
+Renk kilitlendikten sonra ikinci bir `CanvasFrame` ("Pen Detection Mask") açılır ve işlenmiş ikili maskeyi (binary mask) gerçek zamanlı olarak gösterir. Bu pencere hata ayıklama (debug) ve jüri sunumu için tasarlanmıştır.
+
+### **G. Silgi Modu Görsel Kutusu**
+
+Silgi (ERASER) modunda aktifken `OverlayPanel.drawEraserBox()` metodu, çizim ucunun çevresine beyaz bir dikdörtgen çizer ve silme etki alanını kullanıcıya gösterir. Silgi yarıçapı `BrushManager.ERASER_RADIUS = 50` pikseldir.
+
+### **H. Alt Durum Çubuğu (Status Bar)**
+
+Her karede ekranın alt kısmına aktif mod (`Mode: PEN`) ve kısayol ipuçları (`C: new color | Q: quit`) yazdırılmaktadır.
+
+### **I. Maven Shade Plugin (Fat JAR)**
+
+`pom.xml` içinde `maven-shade-plugin` tanımlıdır. `mvn clean package` komutu tüm bağımlılıkları içeren tek bir çalıştırılabilir JAR (`magic-painter-1.0.0.jar`) üretir. Geliştirme sırasında `mvn compile exec:java` kullanılabilir.
+
+---
+
+## **9\. Geliştirici Ajanlar (Coding Agents) İçin Önemli Notlar**
 
 1. **Aynalama İlk Adım Olmalıdır:** Kamera karesi CameraManager tarafından yakalandığı an, koordinat işlemlerine başlanmadan önce opencv\_core.flip(src, dest, 1\) ile yatayda aynalanmalıdır.  
 2. **Kamera Boyutları Dinamik Olmalıdır:** Koordinat hesaplamalarının taşmaması için kamera çözünürlüğü (genelde ![][image6] veya ![][image7]) başlangıçta okunmalı, UI butonları ve ROI kutuları bu boyutlara göre dinamik ölçeklenmelidir.  
