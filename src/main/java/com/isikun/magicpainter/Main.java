@@ -7,12 +7,16 @@ import com.isikun.magicpainter.vision.ColorTracker;
 
 import org.bytedeco.javacv.CanvasFrame;
 import org.bytedeco.javacv.OpenCVFrameConverter;
+import org.bytedeco.opencv.global.opencv_imgcodecs;
 import org.bytedeco.opencv.opencv_core.Mat;
 import org.bytedeco.opencv.opencv_core.Point;
 
 import javax.swing.WindowConstants;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
+import java.io.File;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -27,7 +31,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *         otherwise                  -> draw according to the active mode
  *   draw history onto the live frame -> overlay the UI -> show on screen
  *
- * Controls: SPACE = calibrate the colour, Q or ESC = quit.
+ * Controls: SPACE = calibrate the colour, Q or ESC = quit, S = save screenshot.
  */
 public class Main {
 
@@ -50,6 +54,7 @@ public class Main {
         AtomicBoolean calibrateRequested = new AtomicBoolean(false);
         AtomicBoolean recalibrateRequested = new AtomicBoolean(false);
         AtomicBoolean quitRequested = new AtomicBoolean(false);
+        AtomicBoolean saveRequested = new AtomicBoolean(false);
         canvas.addKeyListener(new KeyAdapter() {
             @Override
             public void keyPressed(KeyEvent e) {
@@ -58,6 +63,8 @@ public class Main {
                     calibrateRequested.set(true);
                 } else if (code == KeyEvent.VK_C) {
                     recalibrateRequested.set(true);
+                } else if (code == KeyEvent.VK_S) {
+                    saveRequested.set(true);
                 } else if (code == KeyEvent.VK_Q || code == KeyEvent.VK_ESCAPE) {
                     quitRequested.set(true);
                 }
@@ -119,6 +126,10 @@ public class Main {
                     mask.release();
                 }
 
+                if (saveRequested.getAndSet(false)) {
+                    saveScreenshot(frame);
+                }
+
                 canvas.showImage(displayConverter.convert(frame));
 
                 // Release per-frame native memory (spec note 3).
@@ -132,6 +143,22 @@ public class Main {
             camera.close();
             canvas.dispose();
             maskCanvas.dispose();
+        }
+    }
+
+    private static void saveScreenshot(Mat frame) {
+        File outputsDir = new File("outputs");
+        if (!outputsDir.exists()) {
+            outputsDir.mkdirs();
+        }
+
+        String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
+        String filename = "outputs/screenshot_" + timestamp + ".png";
+        
+        if (opencv_imgcodecs.imwrite(filename, frame)) {
+            System.out.println("Screenshot saved to: " + filename);
+        } else {
+            System.err.println("Failed to save screenshot to: " + filename);
         }
     }
 }

@@ -227,7 +227,7 @@ public class OverlayPanel {
 
         Scalar hintColor = new Scalar(0, 0, 0, 0); // Black hints
         Point hintOrg = new Point(20, frame.rows() - 20);
-        opencv_imgproc.putText(frame, "C: new color   Q: quit", hintOrg,
+        opencv_imgproc.putText(frame, "C: new color   S: save   Q: quit", hintOrg,
                 opencv_imgproc.FONT_HERSHEY_SIMPLEX, 0.5, hintColor, 1,
                 opencv_imgproc.LINE_AA, false);
 
